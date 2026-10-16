@@ -14,16 +14,16 @@ func _process(delta):
 	var level = get_parent().get_parent()
 	if level and level.has_node("Player"):
 		var player = level.get_node("Player")
-		_direction = (player.position - position).normalized()
+		_direction = (player.global_position - global_position).normalized()
 
 		# Contact damage
 		_attack_cooldown = max(0.0, _attack_cooldown - delta)
-		if position.distance_to(player.position) < CONTACT_RADIUS and _attack_cooldown <= 0.0:
+		if global_position.distance_to(player.global_position) < CONTACT_RADIUS and _attack_cooldown <= 0.0:
 			if player.has_method("take_damage"):
 				player.take_damage(CONTACT_DAMAGE)
 			_attack_cooldown = 1.0
 
-	position += _direction * speed * delta
+	global_position += _direction * speed * delta
 	queue_redraw()
 
 func take_damage(amount):

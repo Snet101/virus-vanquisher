@@ -3,17 +3,22 @@ extends Node2D
 var health = 50
 var speed = 80
 var direction = Vector2(1, 0)
+var attack_cooldown = 0.0
 
 func _ready():
 	set_process(true)
 
 func _process(delta):
-	position += direction * speed * delta
+	global_position += direction * speed * delta
 	# AI: chase player
 	var lvl = get_parent().get_parent()
 	if lvl and lvl.has_node("Player"):
 		var player = lvl.get_node("Player")
-		direction = (player.position - position).normalized()
+		direction = (player.global_position - global_position).normalized()
+		attack_cooldown = max(0.0, attack_cooldown - delta)
+		if global_position.distance_to(player.global_position) < 12.0 and attack_cooldown <= 0.0:
+			player.take_damage(8)
+			attack_cooldown = 1.0
 
 func take_damage(amount):
 	health -= amount

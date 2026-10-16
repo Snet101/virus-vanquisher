@@ -16,24 +16,25 @@ const ENGULF_RADIUS = 28.0
 
 func _process(delta):
 	# Enemy proj slower for dodging
-	var proj_speed = 200 if not owner_is_player else speed
-	position += direction.normalized() * proj_speed * delta
+	var proj_speed = speed
+	global_position += direction.normalized() * proj_speed * delta
 	age += delta
 	if age >= lifetime:
-		queue_free()
-		return
-
-	if position.x < -30 or position.x > 320 or position.y < -30 or position.y > 200:
 		queue_free()
 		return
 
 	var root = get_parent().get_parent()
 	if not root:
 		return
+	var level_position = root.to_local(global_position)
+	if level_position.x < -30 or level_position.x > 320 or level_position.y < -30 or level_position.y > 200:
+		queue_free()
+		return
 
 	if owner_is_player:
 		_try_hit_bosses(root)
-		_try_hit_enemies(root)
+		if not is_queued_for_deletion():
+			_try_hit_enemies(root)
 	else:
 		_try_hit_player(root, delta)
 
@@ -46,7 +47,7 @@ func _try_hit_bosses(root):
 			continue
 		if boss.get("stunned") == true:
 			continue
-		if position.distance_to(boss.position) < 50:
+		if global_position.distance_to(boss.global_position) < 50:
 			if boss.has_method("take_damage"):
 				boss.take_damage(damage)
 			if boss.has_method("_on_hit_flash"):
@@ -59,7 +60,7 @@ func _try_hit_enemies(root):
 	if not enemies:
 		return
 	for enemy in enemies.get_children():
-		if position.distance_to(enemy.position) < 18:
+		if global_position.distance_to(enemy.global_position) < 18:
 			if enemy.has_method("take_damage"):
 				enemy.take_damage(damage)
 			queue_free()
@@ -70,31 +71,28 @@ func _try_hit_player(root, delta):
 	if not player:
 		return
 
-	var dist = position.distance_to(player.position)
+	var dist = global_position.distance_to(player.global_position)
 	var radius = ENGULF_RADIUS if is_engulf else 18.0
 
-	if dist < radius:
-		if is_engulf:
-		# Instant hit, then DoT
-		if not _engulf_entered:
-			_engulf_entered = true
-			dot_timer = 0.0
-			if player.has_method("take_damage"):
-				player.take_damage(damage)
-		# Tick damage
-			dot_timer += delta
-			if dot_timer >= DOT_INTERVAL:
-				dot_timer = 0.0
-				if player.has_method("take_damage"):
-					player.take_damage(damage)
-		else:
-			if player.has_method("take_damage"):
-				player.take_damage(damage)
-			queue_free()
+	if dist >= radius:
+		dot_timer = 0.0
+		_engulf_entered = false
+		return
+	if not is_engulf:
+		player.take_damage(damage)
+		queue_free()
+		return
+	if not _engulf_entered:
+		_engulf_entered = true
+		dot_timer = 0.0
+		player.take_damage(damage)
 	else:
-		if is_engulf:
-			dot_timer = 0.0
-			_engulf_entered = false  # reset for re-entry
+		dot_timer += delta
+		while dot_timer >= DOT_INTERVAL:
+			dot_timer -= DOT_INTERVAL
+			if not is_instance_valid(player) or player.is_queued_for_deletion():
+				break
+			player.take_damage(damage)
 
 func _draw():
 	if is_engulf:

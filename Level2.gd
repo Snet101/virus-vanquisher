@@ -15,6 +15,9 @@ extends Node2D
 
 var enemies_node: Node2D   # Mini viruses
 
+var combat_active = false
+var level_finished = false
+
 const AMMO_BAR_MAX_W = 118.0
 
 func _ready():
@@ -37,7 +40,7 @@ func _ready():
 	player.ammo = 5
 	_on_ammo_changed(player.ammo, player.max_ammo)
 
-	player.set_process(false)
+	_set_combat_active(false)
 	_show_level_intro(
 		"TROJAN HORSE",
 		Color(0.85, 0.45, 0.0),
@@ -66,63 +69,27 @@ func _on_ammo_changed(current, max_val):
 		ammo_bar.color = Color(0.9, 0.1, 0.1)
 
 func _show_level_intro(virus_name: String, accent: Color, description: String, callback: Callable):
-	var cl = CanvasLayer.new()
-	cl.layer = 20
-	add_child(cl)
+	var overlay = preload("res://LevelIntro.gd").new()
+	add_child(overlay)
+	overlay.show_intro(virus_name, accent, description, func():
+		_set_combat_active(true)
+		callback.call()
+	)
 
-	var bg = ColorRect.new()
-	bg.offset_left = 0; bg.offset_top = 0; bg.offset_right = 288; bg.offset_bottom = 162
-	bg.color = Color(0.02, 0.02, 0.08, 0.95)
-	cl.add_child(bg)
-
-	var badge = ColorRect.new()
-	badge.offset_left = 0; badge.offset_top = 24; badge.offset_right = 288; badge.offset_bottom = 26
-	badge.color = accent
-	cl.add_child(badge)
-
-	var title = Label.new()
-	title.text = "VIRUS ALERT: " + virus_name
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.offset_left = 0; title.offset_top = 6; title.offset_right = 288; title.offset_bottom = 22
-	title.add_theme_font_size_override("font_size", 9)
-	title.add_theme_color_override("font_color", accent)
-	cl.add_child(title)
-
-	var desc = Label.new()
-	desc.text = description
-	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	desc.offset_left = 12; desc.offset_top = 30; desc.offset_right = 276; desc.offset_bottom = 136
-	desc.add_theme_font_size_override("font_size", 7)
-	desc.add_theme_color_override("font_color", Color(0.9, 0.92, 1.0))
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	cl.add_child(desc)
-
-	var btn = Button.new()
-	btn.text = "TAP TO FIGHT"
-	btn.offset_left = 84; btn.offset_top = 140; btn.offset_right = 204; btn.offset_bottom = 154
-	btn.add_theme_font_size_override("font_size", 7)
-	cl.add_child(btn)
-
-	var dismissed = false
-	var dismiss = func():
-		if dismissed:
-			return
-		if not is_instance_valid(cl):
-			return
-		dismissed = true
-		var tw = create_tween()
-		tw.tween_property(cl, "modulate:a", 0.0, 0.35)
-		tw.tween_callback(func():
-			if is_instance_valid(cl):
-				cl.queue_free()
-			callback.call()
-		)
-
-	btn.pressed.connect(dismiss)
-	btn.grab_focus()
-	get_tree().create_timer(6.0).timeout.connect(dismiss)
+func _set_combat_active(active: bool):
+	combat_active = active
+	player.set_process(active)
+	titan.set_process(active)
+	for container_name in ["Projectiles", "Enemies", "Collectibles"]:
+		var container = get_node_or_null(container_name)
+		if container:
+			container.process_mode = Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
 
 func _on_player_died():
+	if level_finished:
+		return
+	level_finished = true
+	_set_combat_active(false)
 	_show_death_screen()
 
 func _show_death_screen():
@@ -151,6 +118,10 @@ func _show_death_screen():
 	tween.tween_callback(func(): get_tree().reload_current_scene())
 
 func _on_titan_died():
+	if level_finished:
+		return
+	level_finished = true
+	_set_combat_active(false)
 	health_bar.color = Color(0.2, 0.9, 0.3)
 	call_deferred("_go_to_level_three")
 
@@ -164,8 +135,8 @@ func _on_player_landed():
 func spawn_mini_virus(pos: Vector2):
 	var v = Node2D.new()
 	v.set_script(load("res://MiniVirus.gd"))
-	v.position = pos
 	enemies_node.add_child(v)
+	v.global_position = pos
 
 func clear_enemies():
 	for e in enemies_node.get_children():
@@ -196,19 +167,22 @@ func _spawn_collectibles():
 func spawn_player_projectile(from_pos, direction):
 	var p = Node2D.new()
 	p.set_script(load("res://Projectile.gd"))
-	p.position = from_pos
 	p.direction = direction
 	p.owner_is_player = true
 	p.damage = 25
 	projectiles.add_child(p)
+	p.global_position = from_pos
 
 func spawn_enemy_projectile(from_pos, direction):
+	if not combat_active:
+		return
 	var p = Node2D.new()
 	p.set_script(load("res://Projectile.gd"))
-	p.position = from_pos
 	p.direction = direction
 	p.owner_is_player = false
+	p.speed = 200
 	projectiles.add_child(p)
+	p.global_position = from_pos
 
 func _go_to_level_three():
 	get_tree().change_scene_to_file("res://Level3.tscn")

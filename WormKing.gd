@@ -29,12 +29,12 @@ func _process(delta):
 		var lvl = get_parent()
 		if lvl and lvl.has_node("Player"):
 			var player = lvl.get_node("Player")
-			var dir = (player.position - position).normalized()
+			var dir = (player.global_position - global_position).normalized()
 			# Attack with spread
 			var spread_angle = randf_range(-0.6, 0.6)  # ±0.6 rad
 			dir = dir.rotated(spread_angle)
 			if lvl.has_method("spawn_enemy_projectile"):
-				lvl.spawn_enemy_projectile(position + Vector2(0, -10), dir)
+				lvl.spawn_enemy_projectile(global_position + Vector2(0, -10), dir)
 	queue_redraw()
 func take_damage(amount):
 	if stunned:
@@ -47,7 +47,7 @@ func take_damage(amount):
 		hit_flash = 0.25
 		if splits_left > 0:
 			splits_left -= 1
-			split.emit(position, 2)
+			split.emit(global_position, 2)
 			# Grab audio
 			var lvl = get_parent()
 			if lvl and lvl.has_node("Audio"):

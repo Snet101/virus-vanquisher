@@ -13,6 +13,9 @@ extends Node2D
 @onready var audio_node        = $Audio
 @onready var projectiles       = $Projectiles
 
+var combat_active = false
+var level_finished = false
+
 const AMMO_BAR_MAX_W = 118.0
 
 func _ready():
@@ -29,11 +32,11 @@ func _ready():
 	player.ammo = 9999
 	_on_ammo_changed(player.max_ammo, player.max_ammo)
 
-	player.set_process(false)
+	_set_combat_active(false)
 	_show_level_intro(
 		"WORM",
 		Color(0.3, 0.9, 0.2),
-		"A standalone, self-replicating type of malware that spreads across networks by exploiting vulnerabilities in systems, without needing human interaction to activate. They consume bandwidth and damage networks, often installing payloads that allow remote control of the machine.",
+		"Worms are standalone malware that self-replicate and spread across networks by exploiting vulnerabilities. They can consume bandwidth and damage systems.",
 		func(): player.set_process(true); player.start_falling()
 	)
 
@@ -56,63 +59,27 @@ func _on_ammo_changed(current, max_val):
 		ammo_bar.color = Color(0.9, 0.1, 0.1)
 
 func _show_level_intro(virus_name: String, accent: Color, description: String, callback: Callable):
-	var cl = CanvasLayer.new()
-	cl.layer = 20
-	add_child(cl)
+	var overlay = preload("res://LevelIntro.gd").new()
+	add_child(overlay)
+	overlay.show_intro(virus_name, accent, description, func():
+		_set_combat_active(true)
+		callback.call()
+	)
 
-	var bg = ColorRect.new()
-	bg.offset_left = 0; bg.offset_top = 0; bg.offset_right = 288; bg.offset_bottom = 162
-	bg.color = Color(0.02, 0.02, 0.08, 0.95)
-	cl.add_child(bg)
-
-	var badge = ColorRect.new()
-	badge.offset_left = 0; badge.offset_top = 24; badge.offset_right = 288; badge.offset_bottom = 26
-	badge.color = accent
-	cl.add_child(badge)
-
-	var title = Label.new()
-	title.text = "VIRUS ALERT: " + virus_name
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.offset_left = 0; title.offset_top = 6; title.offset_right = 288; title.offset_bottom = 22
-	title.add_theme_font_size_override("font_size", 9)
-	title.add_theme_color_override("font_color", accent)
-	cl.add_child(title)
-
-	var desc = Label.new()
-	desc.text = description
-	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	desc.offset_left = 12; desc.offset_top = 30; desc.offset_right = 276; desc.offset_bottom = 136
-	desc.add_theme_font_size_override("font_size", 7)
-	desc.add_theme_color_override("font_color", Color(0.9, 0.92, 1.0))
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	cl.add_child(desc)
-
-	var btn = Button.new()
-	btn.text = "TAP TO FIGHT"
-	btn.offset_left = 84; btn.offset_top = 140; btn.offset_right = 204; btn.offset_bottom = 154
-	btn.add_theme_font_size_override("font_size", 7)
-	cl.add_child(btn)
-
-	var dismissed = false
-	var dismiss = func():
-		if dismissed:
-			return
-		if not is_instance_valid(cl):
-			return
-		dismissed = true
-		var tw = create_tween()
-		tw.tween_property(cl, "modulate:a", 0.0, 0.35)
-		tw.tween_callback(func():
-			if is_instance_valid(cl):
-				cl.queue_free()
-			callback.call()
-		)
-
-	btn.pressed.connect(dismiss)
-	btn.grab_focus()
-	get_tree().create_timer(6.0).timeout.connect(dismiss)
+func _set_combat_active(active: bool):
+	combat_active = active
+	player.set_process(active)
+	king.set_process(active)
+	for container_name in ["Projectiles", "Enemies", "Collectibles"]:
+		var container = get_node_or_null(container_name)
+		if container:
+			container.process_mode = Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
 
 func _on_player_died():
+	if level_finished:
+		return
+	level_finished = true
+	_set_combat_active(false)
 	_show_death_screen()
 
 func _show_death_screen():
@@ -141,6 +108,10 @@ func _show_death_screen():
 	tween.tween_callback(func(): get_tree().reload_current_scene())
 
 func _on_king_died():
+	if level_finished:
+		return
+	level_finished = true
+	_set_combat_active(false)
 	health_bar.color = Color(0.2, 0.9, 0.3)
 	_play_sfx("SFX_Victory")
 	get_tree().create_timer(1.2).timeout.connect(_show_victory_screen)
@@ -149,8 +120,8 @@ func _on_king_split(pos, count):
 	for i in range(count):
 		var e = Node2D.new()
 		e.set_script(load("res://WormMinion.gd"))
-		e.position = pos + Vector2(randf_range(-25, 25), randf_range(-25, 25))
 		enemies.add_child(e)
+		e.global_position = pos + Vector2(randf_range(-25, 25), randf_range(-25, 25))
 	_play_sfx("SFX_Split")
 
 func _on_player_fired(from_pos, direction):
@@ -163,24 +134,27 @@ func _on_player_landed():
 func spawn_player_projectile(from_pos, direction, charged = false):
 	var p = Node2D.new()
 	p.set_script(load("res://Projectile.gd"))
-	p.position = from_pos
 	p.direction = direction
 	p.owner_is_player = true
 	p.damage = 28 if charged else 16
 	projectiles.add_child(p)
+	p.global_position = from_pos
 
 func spawn_enemy_projectile(from_pos, direction):
+	if not combat_active:
+		return
 	var p = Node2D.new()
 	p.set_script(load("res://Projectile.gd"))
-	p.position = from_pos
 	p.direction = direction
 	p.owner_is_player = false
+	p.speed = 200
 	# Worm King fires slow engulf blobs — player must dodge out of them
 	p.is_engulf = true
 	p.speed = 48
-	p.damage = 12   # per tick every 0.55 s
+	p.damage = 12   # immediate hit, then every DOT_INTERVAL (0.25 s)
 	p.lifetime = 4.0
 	projectiles.add_child(p)
+	p.global_position = from_pos
 
 func _show_victory_screen():
 	var cl = CanvasLayer.new()
@@ -205,14 +179,7 @@ func _show_victory_screen():
 	cl.add_child(title)
 
 	var fact = Label.new()
-	fact.text = (
-		"WORM FACT:\n" +
-		"Worms self-replicate without\n" +
-		"needing a host file. They spread\n" +
-		"across networks and can clone\n" +
-		"themselves endlessly.\n\n" +
-		"Stay safe: keep your OS updated!"
-	)
+	fact.text = "WORMS SELF-REPLICATE\nThey spread across networks.\n\nKeep your operating system updated!"
 	fact.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	fact.position = Vector2(20, 52)
 	fact.size = Vector2(248, 80)
@@ -220,6 +187,7 @@ func _show_victory_screen():
 	fact.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 	fact.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	cl.add_child(fact)
+	fact.set_deferred("size", Vector2(248, 80))
 
 	var portal = ColorRect.new()
 	portal.color = Color(0.2, 0.8, 1.0, 0.0)
@@ -233,11 +201,12 @@ func _show_victory_screen():
 
 	var btn = Button.new()
 	btn.text = "PLAY AGAIN"
-	btn.position = Vector2(94, 142)
-	btn.size = Vector2(100, 16)
+	btn.position = Vector2(94, 132)
+	btn.size = Vector2(100, 24)
 	btn.add_theme_font_size_override("font_size", 8)
 	btn.pressed.connect(func(): get_tree().change_scene_to_file("res://intro_scene.tscn"))
 	cl.add_child(btn)
+	btn.set_deferred("size", Vector2(100, 24))
 
 func _play_sfx(sfx_name: String):
 	if audio_node and audio_node.has_node(sfx_name):

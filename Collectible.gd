@@ -44,6 +44,8 @@ func _process(delta):
 		_on_collected(player, level)
 
 func _on_collected(player, level):
+	if collected:
+		return
 	collected = true
 	match collectible_type:
 		Type.GIFT_BOX:
