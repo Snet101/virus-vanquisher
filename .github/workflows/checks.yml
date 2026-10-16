@@ -1,0 +1,24 @@
+name: game-checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  godot-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Download pinned official Godot and verify release checksum
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/godot"
+          cd "$RUNNER_TEMP/godot"
+          base=https://github.com/godotengine/godot-builds/releases/download/4.6.1-stable
+          curl --fail --location --retry 3 "$base/Godot_v4.6.1-stable_linux.x86_64.zip" -o Godot_v4.6.1-stable_linux.x86_64.zip
+          curl --fail --location --retry 3 "$base/SHA512-SUMS.txt" -o SHA512-SUMS.txt
+          grep ' Godot_v4.6.1-stable_linux.x86_64.zip$' SHA512-SUMS.txt | sha512sum --check --strict
+          unzip -q Godot_v4.6.1-stable_linux.x86_64.zip
+          chmod +x Godot_v4.6.1-stable_linux.x86_64
+      - run: python scripts/validate_game.py --godot "$RUNNER_TEMP/godot/Godot_v4.6.1-stable_linux.x86_64"

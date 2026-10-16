@@ -9,6 +9,8 @@ var walk_speed = 150
 var jump_speed = -250
 var facing = 1
 var rub_timer = 0.0
+var initial_landing = true
+var reload_timer = 0.0
 var jumps_left = 2
 
 signal fired(from_pos, direction)
@@ -34,7 +36,7 @@ var _inv_flash = 0.0
 var has_custom_sprite = false
 
 func take_damage(amount):
-	if invincible_timer > 0.0:
+	if invincible_timer > 0.0 or health <= 0 or is_queued_for_deletion():
 		return
 	health = max(0, health - amount)
 	hit_flash = 0.3
@@ -69,68 +71,49 @@ func start_falling():
 	velocity = Vector2(0, 60)
 
 func _process(delta):
-	if slow_timer > 0.0:
-		slow_timer = max(0.0, slow_timer - delta)
-	if invert_timer > 0.0:
-		invert_timer = max(0.0, invert_timer - delta)
-	if invincible_timer > 0.0:
-		invincible_timer = max(0.0, invincible_timer - delta)
-		_inv_flash += delta * 10.0
-	if hit_flash > 0.0:
-		hit_flash = max(0.0, hit_flash - delta)
-
-	var speed_mult = 0.4 if slow_timer > 0.0 else 1.0
-
+	for timer in ["slow_timer", "invert_timer", "invincible_timer", "hit_flash"]:
+		set(timer, max(0.0, get(timer) - delta))
+	_inv_flash += delta * 10.0
+	if reload_timer > 0.0:
+		reload_timer = max(0.0, reload_timer - delta)
+		if reload_timer == 0.0:
+			refill_ammo()
 	match state:
-		State.FALLING:
-			velocity.y += gravity * delta
-			# Move left/right in air
-			var air_dir = 0
-			if Input.is_action_pressed("ui_left"):
-				air_dir = -1
-			elif Input.is_action_pressed("ui_right"):
-				air_dir = 1
+		State.RUBBING_HEAD:
+			rub_timer += delta
+			if rub_timer >= 0.6:
+				state = State.WALKING
+		State.FALLING, State.WALKING:
+			var speed_mult = 0.4 if slow_timer > 0.0 else 1.0
+			var move_dir = Input.get_axis("ui_left", "ui_right")
 			if invert_timer > 0.0:
-				air_dir = -air_dir
-			if air_dir != 0:
-				facing = air_dir
-			position.x += air_dir * walk_speed * speed_mult * delta
-			position.x = clamp(position.x, 2, 286)
-			# Double jump
+				move_dir = -move_dir
+			if move_dir != 0:
+				facing = sign(move_dir)
+			position.x = clamp(position.x + move_dir * walk_speed * speed_mult * delta, 2, 286)
 			var jump_key = "ui_up" if invert_timer <= 0.0 else "ui_down"
-			if Input.is_action_just_pressed("ui_accept"):
-				_try_fire()
-			position += velocity * delta
-			if position.y >= ground_y:
-				position.y = ground_y
-				velocity.y = 0.0
-				_on_landed()
-
-			var dir_x = 0
-			if Input.is_action_pressed("ui_left"):
-				dir_x = -1
-			elif Input.is_action_pressed("ui_right"):
-				dir_x = 1
-			if invert_timer > 0.0:
-				dir_x = -dir_x
-			if dir_x != 0:
-				facing = dir_x
-			position.x += dir_x * walk_speed * speed_mult * delta
-			position.x = clamp(position.x, 2, 286)
-
-			var jump_key = "ui_up" if invert_timer <= 0.0 else "ui_down"
-			if Input.is_action_just_pressed(jump_key):
+			if Input.is_action_just_pressed(jump_key) and jumps_left > 0:
 				velocity.y = jump_speed
-				jumps_left = 1
+				jumps_left -= 1
 				state = State.FALLING
-
+			if Input.is_action_just_pressed("reload") and ammo < max_ammo and reload_timer == 0.0:
+				reload_timer = 0.8
 			if Input.is_action_just_pressed("ui_accept"):
 				_try_fire()
-
+			if state == State.FALLING:
+				velocity.y += gravity * delta
+				position.y += velocity.y * delta
+				if position.y >= ground_y:
+					position.y = ground_y
+					velocity.y = 0.0
+					_on_landed()
+	var sprite = get_node_or_null("Sprite2D")
+	if sprite:
+		sprite.flip_h = facing < 0
 	queue_redraw()
 
 func _try_fire():
-	if ammo <= 0:
+	if ammo <= 0 or reload_timer > 0.0 or health <= 0:
 		return
 	ammo -= 1
 	ammo_changed.emit(ammo, max_ammo)
@@ -140,7 +123,8 @@ func _try_fire():
 func _on_landed():
 	rub_timer = 0.0
 	jumps_left = 2
-	state = State.RUBBING_HEAD
+	state = State.RUBBING_HEAD if initial_landing else State.WALKING
+	initial_landing = false
 	landed.emit()
 
 func _draw():

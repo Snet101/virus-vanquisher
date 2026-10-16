@@ -78,6 +78,8 @@ func _input(event):
 			get_tree().root.set_input_as_handled()
 
 func _on_start_pressed():
+	if animation_started:
+		return
 	print("START button pressed!")
 	# Show anim elements
 	starter_screen.visible = false
